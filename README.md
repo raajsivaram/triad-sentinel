@@ -31,7 +31,7 @@ graph TD
     Sup -->|Route| SEC[Security Compliance Specialist]
     Sup -->|Route| SRE[SRE & FinOps Specialist]
     
-    subgraph Model Context Protocol (MCP)
+    subgraph MCP ["Model Context Protocol (MCP)"]
         SEC -->|Fetch| P1[(zero_trust_iam.md)]
         SEC -->|Fetch| P2[(finops_baselines.md)]
         SRE -->|Fetch| P3[(ha_compute_rules.md)]
