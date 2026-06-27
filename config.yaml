@@ -1,0 +1,11 @@
+metadata:
+  name: triad-sentinel
+  version: 1.0.0
+  description: "Triad Sentinel - Managed Multi-Agent Graph for Architectural and Security Compliance Triage."
+runtime:
+  engine: google-adk-python
+  python_version: "3.11"
+  entry_point: src.main:app
+environment_variables:
+  MODEL_NAME: "gemini-2.5-flash"
+  POLICIES_PATH: "./policies"
