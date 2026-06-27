@@ -17,5 +17,5 @@ ENV/
 
 # Local ADK / Antigravity state
 .agents/
-*.log.chainlit/
+*.log
 .chainlit/
