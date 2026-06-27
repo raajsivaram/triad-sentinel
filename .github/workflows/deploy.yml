@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - main
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -36,6 +39,7 @@ jobs:
   deploy:
     name: Deploy Agent to Vertex AI
     needs: test
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -45,8 +49,8 @@ jobs:
         uses: google-github-actions/auth@v2
         with:
           # Using Workload Identity Federation (Standard SRE practice)
-          workload_identity_provider: ${{ secrets.GCP_WIP_PROVIDER }}
-          service_account: ${{ secrets.GCP_SA_EMAIL }}
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
           token_format: 'access_token'
 
       - name: Set up Cloud SDK

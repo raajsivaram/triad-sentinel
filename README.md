@@ -100,7 +100,9 @@ A robust, production-ready GitHub Actions deployment pipeline is configured in `
 
 1. **Automated Verification Gate:** Runs the `pytest` test suite on every push to verify the code quality and security policies.
 2. **Secure Authentication:** Connects to Google Cloud using modern **OpenID Connect (OIDC) / Workload Identity Federation**, removing the need for long-lived static service account keys in repository secrets.
-3. **Continuous Deployment:** Executes `adk deploy agent_engine` to push, build, and deploy the inline python source directory to **Vertex AI Agent Engine**.
+3. **Manual Deployment:** Deployment to Vertex AI Agent Engine is an on-demand, manual process triggered via the GitHub Actions UI (workflow_dispatch) rather than running automatically on every push.
+
+To prevent unnecessary compute costs and secret injection errors, the deployment pipeline is decoupled from the automated testing pipeline. Automated testing (pytest) runs on every push, while production deployment requires manual approval via the GitHub Actions tab.
 
 ---
 
