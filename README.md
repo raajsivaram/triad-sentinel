@@ -1,123 +1,137 @@
 # 🛡️ Triad Sentinel
+**An Enterprise AI Architecture Review Board for Google Cloud Platform (GCP)**
 
-Triad Sentinel is an enterprise-grade, multi-agent AI system designed to automatically audit cloud architecture blueprints and Infrastructure-as-Code (IaC) templates for security compliance, site reliability engineering (SRE) baselines, and cost optimization. 
+Triad Sentinel is an enterprise-grade, multi-agent AI system designed to automatically audit cloud architecture blueprints, Infrastructure-as-Code (IaC) templates, Mermaid diagrams, and Statement of Work (SOW) documents. It evaluates designs against three critical pillars: **Security Compliance (Zero-Trust)**, **Site Reliability Engineering (SRE) Baselines**, and **FinOps (Cost Optimization)**.
 
-Built using the **Google Agent Development Kit (ADK)** and targeting **Vertex AI Agent Engine (Reasoning Engines)**, the system implements zero-trust boundaries, pre-run secret interception, and multi-agent consensus routing.
+Built using the **Google Agent Development Kit (ADK)** and targeting **Vertex AI Agent Engine**, the system implements strict defense-in-depth guardrails, pre-run secret interception, LLM injection prevention, and multi-agent consensus routing.
 
 ---
 
 ## 🏢 System Architecture & Workflow
 
-The system is structured as a directed graph workflow orchestrating parallel specialist reviews under a supervisor compilation gate.
+The system is structured as a directed graph workflow orchestrating parallel specialist reviews under a supervisor compilation gate, wrapped in a visual Chainlit UI.
 
 ```mermaid
 graph TD
-    A[Raw Infrastructure Specification / SOW] --> B[Ingestion Guardrail: Secret Masker]
-    B -- Redacts Secret / Drops Execution --x C[HTTP 400 Bad Request]
-    B -- Clean Spec --> D[Supervisor Entry Gate]
-    D --> E[Plan-Phase Security Gate: File format & Path Traversal check]
-    E -- Path Traversal / Disallowed Format --x F[ValueError / HTTP 400]
-    E -- Safe Plan --> G{ADK Parallel Graph Execution}
+    UI[Chainlit UI / API Client] -->|Raw Text / .docx / .mmd| API[FastAPI Ingress]
     
-    G --> H[Security Compliance Specialist]
-    G --> I[SRE & Scale Specialist]
+    subgraph Defense-in-Depth Guardrails
+        API --> G1[1. Secret Masker]
+        G1 -->|Clean| G2[2. Scope & Intent Validator]
+        G2 -->|Valid| G3[3. Injection & Bypass Detector]
+        G3 -->|Safe| G4[4. Plan-Phase Security Gate]
+    end
     
-    H -- Call Tool --> J[Local/Cloud MCP Server]
-    I -- Call Tool --> J
+    G4 --> Sup[Architecture Supervisor]
     
-    J -- Reads --> K[(zero_trust_iam.md)]
-    J -- Reads --> L[(ha_compute_rules.md)]
+    Sup -->|Tool Call| MP[Mermaid Parser]
+    Sup -->|Tool Call| PP[Plan Parser]
+    Sup -->|Tool Call| STRIDE[STRIDE Analyzer]
     
-    H --> M[Compliance Assessment]
-    I --> N[SRE Operational Assessment]
+    Sup -->|Route| SEC[Security Compliance Specialist]
+    Sup -->|Route| SRE[SRE & FinOps Specialist]
     
-    M --> O[Architecture Supervisor compilation]
-    N --> O
+    subgraph Model Context Protocol (MCP)
+        SEC -->|Fetch| P1[(zero_trust_iam.md)]
+        SEC -->|Fetch| P2[(finops_baselines.md)]
+        SRE -->|Fetch| P3[(ha_compute_rules.md)]
+        SRE -->|Fetch| P2
+    end
     
-    O --> P[Final Executive Sign-off Report]
+    SEC --> Report[Executive Sign-Off Report]
+    SRE --> Report
+    Sup --> Report
+    Report --> UI
 ```
 
 ---
 
-## 🤖 Multi-Agent Orchestration Design
+## 🛡️ Defense-in-Depth Security Guardrails
+Before any request reaches the LLM, it must pass through four strict, programmatic Python guardrails to ensure enterprise security and compute efficiency:
 
-The system uses three highly specialized agents working in concert to evaluate architectural specifications:
-
-1. **Senior Enterprise Architecture Supervisor (`architecture_supervisor`):**
-   * **Role:** Orchestration, routing logic, and aggregation.
-   * **Responsibilities:** Receives the original proposal, routes it through parallel specialist paths, collects raw markdown reports, and synthesizes findings into a unified executive dashboard without altering specialists' inputs.
-   * **Tools:** Integrates the STRIDE threat modeling analyzer to perform deep threat assessments.
-
-2. **Security Compliance Specialist (`security_compliance_specialist`):**
-   * **Role:** Zero-trust validator.
-   * **Responsibilities:** Leverages `zero_trust_iam.md` via the Model Context Protocol (MCP) to verify identity controls (IAM wildcards), network perimeters (public routing tables, SSH/RDP exposures), and data encryption (KMS, TLS 1.3).
-
-3. **SRE & Scale Specialist (`sre_scale_specialist`):**
-   * **Role:** Reliability and cost optimizer.
-   * **Responsibilities:** Leverages `ha_compute_rules.md` via MCP to identify single points of failure (SPOFs), auto-scaling policies, observability requirements, and bloated provisioning (cost efficiency).
-
----
-
-## 🔒 Security Gates & Guardrails
-
-The solution enforces a defense-in-depth model with multiple pre-execution validation gates:
-
-### 1. Ingestion Phase: Secret Masking Guardrail
-* **Location:** `src/guardrails/secret_masker.py`
-* **Logic:** Intercepts incoming requests before reaching downstream models. Scans for high-risk exposed patterns (e.g. AWS Keys, Google API Keys, RSA Private Keys).
-* **Action:** Instantly redacts the secret to shield downstream logs, print a security alert, drops execution, and returns a structured `CRITICAL CONTEXT ERROR` response block.
-
-### 2. Planning Phase: Local Security Gate
-* **Location:** `src/agents/supervisor.py` (`on_plan_phase`)
-* **Logic:** A callback hook executed before invoking downstream LLMs. It parses candidate paths and file formats referenced in the architecture specification.
-* **Action:** Blocks unauthorized directory traversals outside the local workspace root and rejects disallowed configuration formats (e.g. `.xml`, `.ini`, `.conf`) by raising a `ValueError`.
+1. **Ingestion Phase: Secret Masking Guardrail (`src/guardrails/secret_masker.py`)**
+   * **Logic:** Intercepts incoming requests and scans for high-risk exposed patterns (AWS Keys, GCP Service Account JSON, RSA Private Keys).
+   * **Action:** Instantly drops execution and returns an HTTP 400 `SECRET_EXPOSURE` error, preventing credentials from ever entering the LLM context or Cloud Logging.
+2. **Domain Locking: Scope & Intent Validator (`src/guardrails/scope_validator.py`)**
+   * **Logic:** A lightweight, rule-based heuristic check that ensures the input contains architectural context (IaC, Mermaid, GCP, SOW).
+   * **Action:** Blocks casual chat, weather queries, or general knowledge questions at the API layer with an HTTP 400 `SCOPE_VIOLATION`, saving LLM compute costs.
+3. **LLM Security: Injection & Bypass Detector (`src/guardrails/injection_detector.py`)**
+   * **Logic:** Detects direct prompt injection, jailbreaking attempts ("ignore previous instructions"), and process bypassing ("skip the security review").
+   * **Action:** Blocks malicious intent with an HTTP 400 `SECURITY_BLOCK` error.
+4. **Planning Phase: Local Security Gate (`src/agents/supervisor.py`)**
+   * **Logic:** A callback hook executed before invoking downstream tools. It parses candidate paths and file formats.
+   * **Action:** Blocks unauthorized directory traversals and rejects disallowed configuration formats by raising a `ValueError`.
 
 ---
 
-## 🛠️ Custom Agent Skills & Tools
+## 🤖 Multi-Agent Orchestration & Tools
+The platform uses three highly specialized agents working in concert, equipped with custom programmatic skills:
 
-The platform provides agents with custom programmatic skills to analyze plans:
+* **Senior Enterprise Architecture Supervisor:** Orchestrates the workflow, routes tasks in parallel, and synthesizes the final executive dashboard.
+* **Security Compliance Specialist:** Leverages MCP to verify identity controls, network perimeters, and data encryption against Zero-Trust baselines.
+* **SRE & FinOps Specialist:** Identifies single points of failure (SPOFs), auto-scaling gaps, observability requirements, and GCP cost inefficiencies.
 
-* **Plan Parser (`parse_infrastructure_plan`):**
-  Located in `src/tools/plan_parser.py`, this tool parses raw IaC templates, JSON, YAML, or SOW markdown descriptions. It identifies compute, networking, CIDR ranges, database components, and exports them as structured JSON blocks.
-* **STRIDE Analyzer (`analyze_stride`):**
-  Located in `src/tools/stride_analyzer.py`, this tool performs threat modeling against the architecture design to identify risks spanning Spoofing, Tampering, Repudiation, Information Disclosure, Denial of Service, and Elevation of Privilege.
+### 🛠️ Custom Agent Skills
+* **Mermaid Parser (`parse_mermaid_architecture`):** Extracts nodes, connections, and trust boundaries from visual Mermaid diagrams into structured JSON.
+* **Plan Parser (`parse_infrastructure_plan`):** Parses raw IaC (Terraform/HCL/YAML) or SOW documents into structured component blocks.
+* **STRIDE Analyzer (`analyze_stride`):** Performs deep threat modeling across 11 component types (Compute, K8s, Serverless, CDN, Network, etc.) mapping risks to Spoofing, Tampering, Repudiation, Information Disclosure, DoS, and Elevation of Privilege.
 
 ---
 
 ## 🔌 Model Context Protocol (MCP) Integration
+Rather than hardcoding compliance standards inside prompt templates (which leads to hallucinations), the specialist agents dynamically call a local MCP Server using `stdio` transport.
+* **Resource URI Scheme:** Uses `policy://[filename]` to surface markdown documentation dynamically.
+* **GCP-Native Policies:** 
+  * `zero_trust_iam.md`: GCP IAM, VPC Service Controls, and Cloud KMS baselines.
+  * `ha_compute_rules.md`: Regional MIGs, Cloud Spanner, and Cloud Monitoring baselines.
+  * `finops_baselines.md`: GCE right-sizing, GCS lifecycle rules, and Spot VM mandates.
 
-Rather than hardcoding compliance standards inside prompt templates, the specialist agents dynamically call a local **Model Context Protocol (MCP) Server** running at `http://127.0.0.1:8001`.
+---
 
-* **Resource URI Scheme:** Uses `policy://[filename]` to surface markdown documentation files in `/policies` dynamically as resources.
-* **Baseline Tool:** Exposes `fetch_policy_baseline` to allow agents to fetch the exact policy standard file (e.g. `zero_trust_iam.md` or `ha_compute_rules.md`) dynamically, eliminating model hallucinations.
+## 🎨 The "Vibe" UI
+Triad Sentinel features a **Chainlit** frontend that visualizes the multi-agent orchestration in real-time. The UI displays collapsible "Steps" showing exactly when the Secret Masker triggers, when the MCP server fetches a policy, and when the parallel specialists complete their audits. It also natively supports uploading `.docx` (SOW documents) and `.mmd` (Mermaid diagrams) directly via the chat interface.
 
 ---
 
 ## 🚀 SRE CI/CD Automation
+A mature, production-ready GitHub Actions pipeline is configured in `.github/workflows/deploy.yml`:
+* **Decoupled CI/CD:** Automated testing (`pytest`) runs on every push. Deployment to Vertex AI Agent Engine is strictly gated behind a manual `workflow_dispatch` trigger to prevent unnecessary cloud compute costs.
+* **Zero-Trust Auth:** Connects to Google Cloud using modern OpenID Connect (OIDC) / Workload Identity Federation, eliminating long-lived static service account keys.
 
-A robust, production-ready GitHub Actions deployment pipeline is configured in `.github/workflows/deploy.yml`:
+---
 
-1. **Automated Verification Gate:** Runs the `pytest` test suite on every push to verify the code quality and security policies.
-2. **Secure Authentication:** Connects to Google Cloud using modern **OpenID Connect (OIDC) / Workload Identity Federation**, removing the need for long-lived static service account keys in repository secrets.
-3. **Manual Deployment:** Deployment to Vertex AI Agent Engine is an on-demand, manual process triggered via the GitHub Actions UI (workflow_dispatch) rather than running automatically on every push.
+## 🏃 How to Run
 
-To prevent unnecessary compute costs and secret injection errors, the deployment pipeline is decoupled from the automated testing pipeline. Automated testing (pytest) runs on every push, while production deployment requires manual approval via the GitHub Actions tab.
+### Prerequisites
+```bash
+pip install -r requirements.txt
+```
+
+### Start the Application
+Open two terminal windows.
+
+**Terminal 1 — Start the FastAPI backend:**
+```bash
+.\.venv\Scripts\python.exe -m uvicorn src.main:app --port 8000
+```
+
+**Terminal 2 — Start the Chainlit UI:**
+```bash
+.\.venv\Scripts\chainlit run src/ui/chainlit_app.py --port 8080
+```
+
+Then open `http://localhost:8080` in your browser.
 
 ---
 
 ## 🧪 Verification & Test Suite
+The test suite in `tests/test_agents.py` covers all core security rules and executes cleanly.
+* **Secret Masking Guardrail:** Asserts early drop and structured error block on exposed keys.
+* **Scope & Injection Guardrails:** Asserts HTTP 400 blocks on casual chat and jailbreak attempts.
+* **Plan-Phase Gate Interception:** Asserts `ValueError` on directory traversal and disallowed XML formats.
+* **API Endpoint Integration:** Uses FastAPI `TestClient` to assert proper status codes and JSON outputs.
 
-The test suite in `tests/test_agents.py` covers all core security rules and executes cleanly in a local Windows PowerShell environment.
-
-### Test Scenarios Covered
-1. **Secret Masking Guardrail:** Passes unmasked AWS & Google API key strings. Asserts that the guardrail drops execution early and returns the structured error block.
-2. **Safe Architecture Processing:** Passes a compliant spec, asserting it clears the guardrail without blockage.
-3. **Plan-Phase Gate Interception:** Passes unauthorized directory traversal paths and disallowed XML formats, asserting that `ValueError` is raised.
-4. **API Endpoint Integration:** Uses FastAPI `TestClient` to make POST requests to `/triage` and asserts proper status codes and JSON outputs under masked environments.
-
-### Execution Command
-Run the tests inside the virtual environment:
-```powershell
-.venv\Scripts\pytest.exe tests/
+**Execution Command:**
+```bash
+.\.venv\Scripts\pytest.exe tests/
 ```
