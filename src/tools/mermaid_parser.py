@@ -59,15 +59,21 @@ def parse_mermaid_architecture(mermaid_code: str) -> str:
     logger.info("Starting parsing of Mermaid architecture diagram.")
 
     # 1. Basic validation: must declare a graph/flowchart
-    cleaned_code = mermaid_code.strip()
-    if not cleaned_code:
+    if not mermaid_code or not mermaid_code.strip():
         raise ValueError("The provided Mermaid diagram is empty.")
 
-    # Search for flowchart/graph declaration
-    if not re.match(r'(?i)^\s*(?:flowchart|graph)\b', cleaned_code):
-        raise ValueError(
-            "Invalid Mermaid diagram. The input must start with a 'flowchart' or 'graph' declaration."
-        )
+    # Strip out Mermaid configuration directives (e.g., %%{init: ...}%%)
+    cleaned_text = re.sub(r'%%\{.*?\}%%', '', mermaid_code, flags=re.DOTALL)
+    # Strip out standard Mermaid comments (e.g., %% comment %%)
+    cleaned_text = re.sub(r'%%.*?%%', '', cleaned_text)
+    # Strip leading/trailing whitespace
+    cleaned_text = cleaned_text.strip()
+
+    if not cleaned_text:
+        raise ValueError("The provided Mermaid diagram is empty.")
+
+    if not cleaned_text.lower().startswith(('graph', 'flowchart')):
+        raise ValueError("Invalid Mermaid diagram. The input must contain a 'flowchart' or 'graph' declaration.")
 
     # 2. Setup parsing states
     nodes = {}  # id -> {"id": id, "label": label, "type": type}
@@ -107,7 +113,7 @@ def parse_mermaid_architecture(mermaid_code: str) -> str:
     ]
 
     # Split into lines and process
-    lines = cleaned_code.splitlines()
+    lines = cleaned_text.splitlines()
     for line_num, raw_line in enumerate(lines, 1):
         line = raw_line.strip()
         if not line or line.startswith("%%") or re.match(r'(?i)^\s*(?:flowchart|graph)\b', line):

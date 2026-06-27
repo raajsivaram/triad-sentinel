@@ -67,8 +67,24 @@ def test_parse_mermaid_architecture_empty():
 
 
 def test_parse_mermaid_architecture_invalid_header():
-    with pytest.raises(ValueError, match="start with a 'flowchart' or 'graph'"):
+    with pytest.raises(ValueError, match="contain a 'flowchart' or 'graph'"):
         parse_mermaid_architecture("sequenceDiagram\nAlice->Bob: Hello")
+
+
+def test_parse_mermaid_architecture_comments_and_directives():
+    diagram = """
+    %%{init: {"theme": "dark"}}%%
+    %% --- Layer --- %%
+    flowchart TD
+        A[Node A] --> B[Node B]
+    """
+    result_str = parse_mermaid_architecture(diagram)
+    result = json.loads(result_str)
+    
+    assert result["format"] == "mermaid"
+    assert result["status"] == "parsed_successfully"
+    assert len(result["nodes"]) == 2
+    assert len(result["connections"]) == 1
 
 
 def test_parse_mermaid_architecture_unclosed_subgraph():
