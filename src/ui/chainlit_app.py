@@ -13,6 +13,8 @@ Launch:
 import chainlit as cl
 import httpx
 import logging
+import os
+from docx import Document
 
 logger = logging.getLogger(__name__)
 
@@ -154,13 +156,43 @@ async def on_load_sample(action: cl.Action):
 @cl.on_message
 async def on_message(message: cl.Message):
     """Handle free-form user input and send it through the triage pipeline."""
-    await _run_triage(message.content)
+    file_content = ""
+    if message.elements:
+        for element in message.elements:
+            file_name = element.name.lower()
+            try:
+                # Handle standard text/IaC/Mermaid files
+                if file_name.endswith(('.mmd', '.mermaid', '.tf', '.json', '.yaml', '.yml', '.md', '.txt', '.hcl', '.sow')):
+                    with open(element.path, 'r', encoding='utf-8') as f:
+                        file_content += f.read() + "\n\n"
+                # Handle binary Word documents
+                elif file_name.endswith('.docx'):
+                    doc = Document(element.path)
+                    text = "\n".join([para.text for para in doc.paragraphs])
+                    file_content += text + "\n\n"
+                else:
+                    await cl.Message(content=f"⚠️ Unsupported file type: {element.name}. Please upload text, IaC, Mermaid, or .docx files.").send()
+                    return
+            except Exception as e:
+                await cl.Message(content=f"⚠️ Error reading file {element.name}: {str(e)}").send()
+                return
+
+        # Visual confirmation
+        await cl.Message(content=f"📄 Successfully extracted content from {len(message.elements)} attached file(s).").send()
+
+    # Combine user text with file content
+    full_input = ((message.content or "") + "\n\n" + file_content).strip()
+    if not full_input:
+        await cl.Message(content="⚠️ Please provide text or attach a valid architecture file.").send()
+        return
+
+    await _run_triage(full_input)
 
 
 # ---------------------------------------------------------------------------
 # Core Triage Flow
 # ---------------------------------------------------------------------------
-async def _run_triage(architecture_text: str):
+async def _run_triage(full_input: str):
     """
     POST the architecture text to the FastAPI backend and visualise the
     response as a series of Chainlit Steps.
@@ -173,7 +205,7 @@ async def _run_triage(architecture_text: str):
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
             response = await client.post(
                 BACKEND_URL,
-                json={"architecture_text": architecture_text},
+                json={"raw_spec": full_input},
             )
             response.raise_for_status()
     except httpx.ConnectError:

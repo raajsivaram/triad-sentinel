@@ -10,7 +10,9 @@ ACCEPTED_KEYWORDS = [
     "gke", "mermaid", "diagram", "sre", "reliability", "scaling", "finops",
     "cost optimization", "compliance", "stride", "security", "network",
     "load balancer", "storage", "backup", "postgres", "db", "aws", "config",
-    "deploy", "api", "key", "server", "instance", "google"
+    "deploy", "api", "key", "server", "instance", "google",
+    "graph td", "graph lr", "flowchart", "sequencediagram", "subgraph",
+    "statement of work", "sow", "architecture document", "design doc"
 ]
 
 def validate_architectural_intent(user_input: str) -> dict:
