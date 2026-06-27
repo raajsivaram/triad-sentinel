@@ -201,66 +201,82 @@ async def _run_triage(architecture_text: str):
         return
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 400:
-            res_json = e.response.json()
-            error_detail = res_json.get('detail')
-            
-            if isinstance(error_detail, dict):
-                error_message = error_detail.get('message', 'Bad request')
-            elif isinstance(error_detail, str):
-                error_message = error_detail
-            else:
-                error_message = res_json.get('message', 'Bad request')
+            try:
+                # Parse the standardized JSON response from FastAPI
+                error_data = e.response.json()
+                error_type = error_data.get("error_type", "GUARDRAIL_BLOCK")
+                message = error_data.get("message", "Request blocked by security guardrail.")
                 
-            await cl.Message(
-                content=f"🚫 **Security Block**: {error_message}",
-                type="error"
-            ).send()
+                # Display the exact custom message based on the error type
+                if error_type == "SECRET_EXPOSURE":
+                    display_msg = f"🛑 **CRITICAL CONTEXT ERROR**\n\n{message}"
+                elif error_type == "SCOPE_VIOLATION":
+                    display_msg = f"🚫 **SCOPE RESTRICTED**\n\n{message}"
+                elif error_type == "SECURITY_BLOCK":
+                    display_msg = f"🚨 **SECURITY BLOCK**\n\n{message}"
+                else:
+                    display_msg = f"⚠️ **{error_type}**\n\n{message}"
+                    
+                await cl.Message(content=display_msg, author="Triad Sentinel").send()
+            except Exception as parse_err:
+                # Fallback if JSON parsing fails
+                await cl.Message(content=f"❌ Error (400): {e.response.text}", author="Triad Sentinel").send()
             return
-        raise
+        
+        # Handle other HTTP errors (500, etc.)
+        await cl.Message(content=f"❌ Unexpected Error (HTTP {e.response.status_code})", author="Triad Sentinel").send()
+        return
 
     # ------------------------------------------------------------------
     # 4. Parse the successful JSON response
     # ------------------------------------------------------------------
-    data = response.json()
-    compliance_summary = data.get("compliance_summary", "_No report returned._")
-    sre_summary = data.get("sre_summary", "_No report returned._")
-    executive_signoff = data.get("executive_signoff", "_No sign-off returned._")
+    try:
+        data = response.json()
+        compliance_summary = data.get("compliance_summary", "_No report returned._")
+        sre_summary = data.get("sre_summary", "_No report returned._")
+        executive_signoff = data.get("executive_signoff", "_No sign-off returned._")
 
-    # ------------------------------------------------------------------
-    # 5. Render Steps
-    # ------------------------------------------------------------------
+        # ------------------------------------------------------------------
+        # 5. Render Steps
+        # ------------------------------------------------------------------
 
-    # Step 1 — Ingestion Guardrail (passed if we reached here)
-    async with cl.Step(name="✅ Ingestion Guardrail") as step:
-        step.output = (
-            "**Status:** ✅ Passed\n\n"
-            "No leaked secrets, API keys, or private key material detected. "
-            "Input cleared for downstream agent processing."
-        )
+        # Step 1 — Ingestion Guardrail (passed if we reached here)
+        async with cl.Step(name="✅ Ingestion Guardrail") as step:
+            step.output = (
+                "**Status:** ✅ Passed\n\n"
+                "No leaked secrets, API keys, or private key material detected. "
+                "Input cleared for downstream agent processing."
+            )
 
-    # Step 2 — Security Compliance Specialist
-    async with cl.Step(name="🔒 Security Compliance Specialist") as step:
-        step.output = (
-            compliance_summary
-            if compliance_summary
-            else "_The Security Specialist did not return a report._"
-        )
+        # Step 2 — Security Compliance Specialist
+        async with cl.Step(name="🔒 Security Compliance Specialist") as step:
+            step.output = (
+                compliance_summary
+                if compliance_summary
+                else "_The Security Specialist did not return a report._"
+            )
 
-    # Step 3 — SRE & FinOps Specialist
-    async with cl.Step(name="⚙️ SRE & FinOps Specialist") as step:
-        step.output = (
-            sre_summary
-            if sre_summary
-            else "_The SRE Specialist did not return a report._"
-        )
+        # Step 3 — SRE & FinOps Specialist
+        async with cl.Step(name="⚙️ SRE & FinOps Specialist") as step:
+            step.output = (
+                sre_summary
+                if sre_summary
+                else "_The SRE Specialist did not return a report._"
+            )
 
-    # ------------------------------------------------------------------
-    # 6. Final Executive Sign-off as the main message
-    # ------------------------------------------------------------------
-    await cl.Message(
-        content=(
-            "## 📋 Executive Architecture Sign-off\n\n"
-            "---\n\n"
-            f"{executive_signoff}"
-        )
-    ).send()
+        # ------------------------------------------------------------------
+        # 6. Final Executive Sign-off as the main message
+        # ------------------------------------------------------------------
+        await cl.Message(
+            content=(
+                "## 📋 Executive Architecture Sign-off\n\n"
+                "---\n\n"
+                f"{executive_signoff}"
+            )
+        ).send()
+    except Exception as e:
+        await cl.Message(
+            content=f"❌ **Unexpected Rendering Error**: {str(e)}",
+            type="error"
+        ).send()
+        return

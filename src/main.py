@@ -1,6 +1,9 @@
 import sys
 import os
 import asyncio
+from dotenv import load_dotenv
+load_dotenv()  # Load environment variables from .env file
+
 from src.utils.logger import setup_logger
 
 logger = setup_logger("triad_sentinel_api")
@@ -19,10 +22,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from google.adk.cli.fast_api import get_fast_api_app
-from dotenv import load_dotenv
-
-# Load environment configuration from .env if present
-load_dotenv()
+from google.genai import errors as genai_errors
 
 # Import components
 from src.guardrails.secret_masker import mask_input_guardrail, secret_masker
@@ -43,83 +43,129 @@ class ArchitectureRequest(BaseModel):
 
 @app.post("/triage")
 async def triage_architecture(request: ArchitectureRequest):
+    request_id = request.request_id if request.request_id else "unknown"
+    
     # Support backward compatibility for architecture_text if raw_spec is missing
     if not request.raw_spec and request.architecture_text:
         request.raw_spec = request.architecture_text
-
-    # Check secrets FIRST
-    secret_check = secret_masker(request.raw_spec or "")
-    if not secret_check['is_safe']:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                'error': 'SECRET_EXPOSURE',
-                'message': secret_check['message']
-            }
-        )
-
+    
+    logger.info(
+        "Triage request received",
+        extra={
+            "request_id": request_id,
+            "spec_length": len(request.raw_spec or ""),
+            "endpoint": "/triage",
+            "component": "api",
+            "action": "triage_request"
+        }
+    )
+    
+    # GUARDRAIL 1: Secret Masker (MUST BE FIRST)
     try:
-        raw_spec = request.raw_spec
-        if not raw_spec:
-            raise HTTPException(status_code=400, detail="Missing specification text.")
-
-        request_id = request.request_id if request.request_id else "unknown"
-
-        logger.info(
-            "Triage request received",
+        logger.info("Executing secret masker guardrail...", extra={"request_id": request_id})
+        secret_check = secret_masker(request.raw_spec or "")
+        logger.info(f"Secret masker result: {secret_check}", extra={"request_id": request_id})
+        
+        # Explicit check with detailed logging
+        if not secret_check.get('is_safe', True):
+            logger.warning(
+                "Guardrail blocked request",
+                extra={
+                    "request_id": request_id,
+                    "component": "guardrail",
+                    "action": "secret_detection",
+                    "result": "blocked",
+                    "http_status": 400,
+                    "error_type": "SECRET_EXPOSURE"
+                }
+            )
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error_type": "SECRET_EXPOSURE",
+                    "message": "🛑 CRITICAL CONTEXT ERROR: Exposed secrets detected (API keys, private keys, or credentials). Please remove sensitive information and resubmit."
+                }
+            )
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions as-is
+    except Exception as e:
+        logger.error(
+            f"Secret masker guardrail threw exception: {str(e)}",
+            exc_info=True,
             extra={
                 "request_id": request_id,
-                "spec_length": len(raw_spec),
-                "endpoint": "/triage",
-                "component": "api",
-                "action": "triage_request"
+                "component": "guardrail",
+                "action": "secret_detection",
+                "result": "error",
+                "severity": "ERROR"
             }
         )
-        
-        # 2. Check for Scope & Intent Validation
-        scope_result = validate_architectural_intent(raw_spec)
-        if not scope_result["is_valid"]:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Guardrail execution error: {str(e)}"
+        )
+    
+    # GUARDRAIL 2: Scope & Intent Validation
+    try:
+        scope_result = validate_architectural_intent(request.raw_spec or "")
+        if not scope_result.get("is_valid", True):
             logger.warning(
-                f"Scope violation detected: {scope_result['reason']}",
+                "Guardrail blocked request",
                 extra={
                     "request_id": request_id,
                     "component": "guardrail",
                     "action": "scope_validation",
                     "result": "blocked",
-                    "severity": "WARNING"
+                    "http_status": 400,
+                    "error_type": "SCOPE_VIOLATION"
                 }
             )
             return JSONResponse(
                 status_code=400,
-                content={"error": "SCOPE_VIOLATION", "message": scope_result["reason"]}
+                content={
+                    "error_type": "SCOPE_VIOLATION",
+                    "message": "🚫 Scope restricted: I am designed exclusively for cloud architecture auditing. Please provide an IaC template, Mermaid diagram, or architectural specification."
+                }
             )
-            
-        # 3. Check for Prompt Injection / Jailbreaks / Process Bypass
-        injection_result = detect_injection_and_bypass(raw_spec)
-        if not injection_result["is_safe"]:
+    except Exception as e:
+        logger.error(f"Scope validator error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Scope validation error: {str(e)}")
+    
+    # GUARDRAIL 3: Injection Detection
+    try:
+        injection_result = detect_injection_and_bypass(request.raw_spec or "")
+        if not injection_result.get("is_safe", True):
             logger.warning(
-                "Prompt injection/process bypass detected",
+                "Guardrail blocked request",
                 extra={
                     "request_id": request_id,
                     "component": "guardrail",
                     "action": "injection_detection",
                     "result": "blocked",
-                    "severity": "WARNING"
+                    "http_status": 400,
+                    "error_type": "SECURITY_BLOCK"
                 }
             )
             return JSONResponse(
                 status_code=400,
-                content={"error": "SECURITY_BLOCK", "message": "Malicious intent or process bypass detected."}
+                content={
+                    "error_type": "SECURITY_BLOCK",
+                    "message": "🚨 SECURITY_BLOCK: Prompt Injection/Bypass detected. Malicious intent or process bypass denied."
+                }
             )
-            
-        # 4. Instantiate and trigger our compiled ADK Graph Workflow using a context-managed Runner
+    except Exception as e:
+        logger.error(f"Injection detector error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Injection detection error: {str(e)}")
+    
+    # ALL GUARDRAILS PASSED - Proceed to Agent Workflow
+    try:
         triage_graph = build_triage_workflow()
         
         from google.adk.runners import InMemoryRunner
         from google.genai import types
         
         state_delta = {
-            "raw_input": raw_spec,
+            "raw_input": request.raw_spec,
             "compliance_report": "",
             "sre_report": "",
             "final_signoff": ""
@@ -154,7 +200,27 @@ async def triage_architecture(request: ArchitectureRequest):
                     user_id="triad_sentinel_user",
                     session_id="session_123"
                 )
-                final_state = session.state.to_dict() if session else {}
+                final_state = session.state if isinstance(session.state, dict) else (session.state.to_dict() if hasattr(session.state, 'to_dict') else {})
+        except genai_errors.ClientError as e:
+            error_msg = str(e)
+            logger.error(f"Google GenAI Client Error: {error_msg}", exc_info=True)
+            
+            # Catch validation errors or authentication failures for both API keys and ADC
+            if any(term in error_msg for term in ["API key not valid", "API_KEY_INVALID", "invalid credentials", "PERMISSION_DENIED"]):
+                return JSONResponse(
+                    status_code=500,
+                    content={
+                        "error": "LLM_PROVIDER_ERROR",
+                        "message": "🔑 LLM Authentication Error: The LLM credentials (Google API Key or Application Default Credentials) are missing, invalid, or do not have the required permissions. Please ensure your authentication settings are correctly configured."
+                    }
+                )
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "error": "LLM_PROVIDER_ERROR",
+                    "message": f"🤖 LLM Provider Error: {error_msg}"
+                }
+            )
         except ValueError as e:
             logger.error(
                 f"Plan-Phase Security Violation: {str(e)}",
@@ -183,21 +249,20 @@ async def triage_architecture(request: ArchitectureRequest):
             "sre_summary": final_state.get("sre_report", ""),
             "executive_signoff": final_state.get("final_signoff", "")
         }
-        
     except HTTPException:
         raise
     except Exception as e:
         logger.error(
-            f"Unexpected error in /triage: {str(e)}",
+            f"Unexpected error in workflow execution: {str(e)}",
             exc_info=True,
             extra={
+                "request_id": request_id,
                 "component": "api",
-                "action": "triage_request",
-                "result": "fail",
-                "severity": "ERROR"
+                "action": "workflow_execution",
+                "result": "error"
             }
         )
-        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Workflow execution error: {str(e)}")
 
 
 # Vertex AI Agent Engine Native Native Hook Wrapper

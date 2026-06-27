@@ -1,6 +1,11 @@
 import os
+import sys
+from dotenv import load_dotenv
+load_dotenv()
+
 from google.adk.agents import Agent
-from google.adk.tools.mcp_tool.mcp_toolset import McpToolset, SseConnectionParams
+from google.adk.tools.mcp_tool import MCPToolset, StdioConnectionParams
+from mcp.client.stdio import StdioServerParameters
 from src.utils.logger import setup_logger
 
 logger = setup_logger("triad_sentinel_compliance")
@@ -32,9 +37,16 @@ def get_compliance_agent() -> Agent:
     # Fetch model target configuration via system environment context
     model_target = os.environ.get("MODEL_NAME", "gemini-2.5-flash")
     
-    mcp_toolset = McpToolset(
-        connection_params=SseConnectionParams(
-            url="http://127.0.0.1:8001/sse"
+    # Path to the new real MCP server script
+    mcp_server_script = os.path.abspath(os.path.join(os.path.dirname(__file__), '../mcp_server/policy_server.py'))
+    
+    # Initialize MCPToolset using stdio (spawns the server as a secure subprocess)
+    policy_toolset = MCPToolset(
+        connection_params=StdioConnectionParams(
+            server_params=StdioServerParameters(
+                command=sys.executable,  # Uses the current Python interpreter
+                args=[mcp_server_script]
+            )
         )
     )
     
@@ -42,7 +54,7 @@ def get_compliance_agent() -> Agent:
         model=model_target,
         name="security_compliance_specialist",
         instruction=COMPLIANCE_EXPERT_INSTRUCTION,
-        tools=[mcp_toolset]
+        tools=[policy_toolset]
     )
     
     return compliance_agent

@@ -201,10 +201,10 @@ def test_api_secret_masking_guardrail_blocked_aws():
         json={"architecture_text": "deploying postgres db with AWS key AKIAIOSFODNN7EXAMPLE"}
     )
     assert response.status_code == 400
-    detail = response.json()["detail"]
-    assert detail["error"] == "SECRET_EXPOSURE"
-    assert "CRITICAL CONTEXT ERROR" in detail["message"]
-    assert "Exposed secrets detected" in detail["message"]
+    json_data = response.json()
+    assert json_data["error_type"] == "SECRET_EXPOSURE"
+    assert "CRITICAL CONTEXT ERROR" in json_data["message"]
+    assert "Exposed secrets detected" in json_data["message"]
 
 
 def test_api_secret_masking_guardrail_blocked_google():
@@ -219,10 +219,10 @@ def test_api_secret_masking_guardrail_blocked_google():
         json={"architecture_text": "app config containing Google API Key AIzaSyD-12345678901234567890123456789012"}
     )
     assert response.status_code == 400
-    detail = response.json()["detail"]
-    assert detail["error"] == "SECRET_EXPOSURE"
-    assert "CRITICAL CONTEXT ERROR" in detail["message"]
-    assert "Exposed secrets detected" in detail["message"]
+    json_data = response.json()
+    assert json_data["error_type"] == "SECRET_EXPOSURE"
+    assert "CRITICAL CONTEXT ERROR" in json_data["message"]
+    assert "Exposed secrets detected" in json_data["message"]
 
 
 @patch("google.adk.runners.InMemoryRunner")
@@ -390,8 +390,9 @@ def test_prompt_injection_guardrail_api():
     response = client.post("/triage", json={"architecture_text": payload})
     assert response.status_code == 400
     json_data = response.json()
-    assert json_data["error"] == "SECURITY_BLOCK"
-    assert "Malicious intent or process bypass detected." in json_data["message"]
+    assert json_data["error_type"] == "SECURITY_BLOCK"
+    assert "SECURITY_BLOCK" in json_data["message"]
+    assert "Prompt Injection/Bypass detected" in json_data["message"]
 
 
 # Scope & Intent Validation Guardrail Tests
@@ -423,8 +424,61 @@ def test_scope_validator_api():
     )
     assert response.status_code == 400
     json_data = response.json()
-    assert json_data["error"] == "SCOPE_VIOLATION"
-    assert "Out of scope" in json_data["message"]
+    assert json_data["error_type"] == "SCOPE_VIOLATION"
+    assert "Scope restricted" in json_data["message"]
 
 
+# =====================================================================
+# STRIDE Analyzer Tests - New Component Types
+# =====================================================================
 
+def test_stride_analyzer_detects_container_kubernetes():
+    """
+    Asserts that the STRIDE analyzer correctly detects Container/Kubernetes
+    components (GKE, Docker, pods, Helm) and returns the expected threat categories.
+    """
+    from src.tools.stride_analyzer import analyze_stride
+
+    input_text = (
+        "The application is deployed on GKE using Docker containers. "
+        "Each microservice runs in its own pod with Helm chart configuration."
+    )
+    result = analyze_stride(input_text)
+
+    # Component header should be present
+    assert "Container / Kubernetes" in result
+
+    # All 3 expected threat categories for this component
+    assert "Elevation of Privilege" in result
+    assert "Tampering" in result
+    assert "Denial of Service" in result
+
+    # Key mitigation keywords
+    assert "non-root" in result
+    assert "ResourceQuotas" in result
+
+
+def test_stride_analyzer_detects_cicd_pipeline():
+    """
+    Asserts that the STRIDE analyzer correctly detects CI/CD Pipeline components
+    (Cloud Build, GitHub Actions, Jenkins) and returns the expected threat categories.
+    """
+    from src.tools.stride_analyzer import analyze_stride
+
+    input_text = (
+        "The build pipeline uses Cloud Build for continuous integration "
+        "and GitHub Actions for deployment workflows."
+    )
+    result = analyze_stride(input_text)
+
+    # Component header should be present
+    assert "CI/CD Pipeline" in result
+
+    # All 3 expected threat categories for this component
+    assert "Tampering" in result
+    assert "Elevation of Privilege" in result
+    assert "Repudiation" in result
+
+    # Key mitigation keywords
+    assert "SLSA" in result
+    assert "just-in-time" in result

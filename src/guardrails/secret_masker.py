@@ -64,61 +64,33 @@ def mask_input_guardrail(callback_context: CallbackContext, user_prompt: str) ->
     }
 
 def secret_masker(text: str) -> dict:
-    """Enterprise-grade secrets checking helper wrapper with robust logging.
-
-    Args:
-        text (str): The raw input string containing the architecture spec.
-
-    Returns:
-        dict: A dict of the form {'is_safe': bool, 'message': str}.
-    """
-    logger.info(
-        "Secret masker guardrail executed",
-        extra={
-            "text_length": len(text),
-            "component": "guardrail",
-            "action": "secret_detection"
-        }
-    )
+    """Enterprise-grade secrets checking with explicit error handling."""
+    logger.info(f"Secret masker called with {len(text)} characters")
+    
     try:
+        # Use the existing mask_input_guardrail function
         class DummyContext:
             agent_name = "api_gateway_ingress"
         
         result = mask_input_guardrail(DummyContext(), text)
-        if not result["is_safe"]:
-            logger.warning(
-                "CRITICAL: Secret exposure detected",
-                extra={
-                    "secret_type": "API_KEY",
-                    "component": "guardrail",
-                    "action": "secret_detection",
-                    "result": "blocked",
-                    "severity": "WARNING"
-                }
-            )
+        
+        # Explicit return structure
+        if not result.get("is_safe", True):
+            logger.warning("Secret detected - returning is_safe=False")
             return {
                 'is_safe': False,
                 'error_type': 'SECRET_EXPOSURE',
                 'message': '🛑 CRITICAL CONTEXT ERROR: Exposed secrets detected (API keys, private keys, or credentials). Please remove sensitive information and resubmit.'
             }
-        logger.info(
-            "No secrets detected, returning is_safe=True",
-            extra={
-                "component": "guardrail",
-                "action": "secret_detection",
-                "result": "pass"
-            }
-        )
-        return {"is_safe": True}
+        
+        logger.info("No secrets detected - returning is_safe=True")
+        return {'is_safe': True, 'message': 'Input is clean'}
+        
     except Exception as e:
-        logger.error(
-            f"Secret masker exception: {str(e)}",
-            exc_info=True,
-            extra={
-                "component": "guardrail",
-                "action": "secret_detection",
-                "result": "fail",
-                "severity": "ERROR"
-            }
-        )
-        raise
+        logger.error(f"Secret masker exception: {str(e)}", exc_info=True)
+        # Return a safe default instead of raising - let main.py handle the error
+        return {
+            'is_safe': False,
+            'error_type': 'GUARDRAIL_ERROR',
+            'message': f'Secret masker execution error: {str(e)}'
+        }

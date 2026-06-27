@@ -14,6 +14,19 @@ def analyze_stride(components_text: str) -> str:
     - D: Denial of Service (e.g. Availability, scaling, rate limiting)
     - E: Elevation of Privilege (e.g. Authorization, RBAC, root permissions)
 
+    Covers 11 component types:
+    1. Database / Storage Systems
+    2. Frontend / Web Servers
+    3. API Gateway / Load Balancers
+    4. Authentication & IAM Services
+    5. Message Queue / Event Bus
+    6. Container / Kubernetes (GKE, EKS, Docker)
+    7. Serverless Functions (Cloud Functions, Lambda)
+    8. CDN / Edge Services (Cloud CDN, Cloudflare)
+    9. Monitoring / Observability (Cloud Monitoring, Stackdriver)
+    10. Network / VPC Components (VPC, Subnets, Firewalls)
+    11. CI/CD Pipeline Components (Cloud Build, GitHub Actions)
+
     Args:
         components_text (str): The architectural proposal or components description.
 
@@ -127,6 +140,149 @@ def analyze_stride(components_text: str) -> str:
                     "category": "Information Disclosure",
                     "description": "Plaintext broker payload inspection by unauthorized consumers sharing the network segment.",
                     "mitigation": "Encrypt payload fields containing PII or sensitive data before sending them to the message broker."
+                }
+            ]
+        },
+        {
+            "name": "Container / Kubernetes (GKE, EKS, Docker)",
+            "keywords": [
+                r"\bkubernetes\b", r"\bk8s\b", r"\bgke\b", r"\beks\b", r"\baks\b",
+                r"\bdocker\b", r"\bcontainer\b", r"\bpod\b", r"\bdeployment\b", r"\bhelm\b"
+            ],
+            "threats": [
+                {
+                    "category": "Elevation of Privilege",
+                    "description": "Container escape vulnerabilities if privileged mode is enabled or host namespaces are shared.",
+                    "mitigation": "Run containers as non-root, disable privileged mode, use Pod Security Policies."
+                },
+                {
+                    "category": "Tampering",
+                    "description": "Unauthorized image modification if container registry lacks vulnerability scanning or image signing.",
+                    "mitigation": "Enable image vulnerability scanning, use signed images with Cosign/Notary."
+                },
+                {
+                    "category": "Denial of Service",
+                    "description": "Resource exhaustion if pod resource limits are not set.",
+                    "mitigation": "Define CPU/memory requests and limits, implement ResourceQuotas and LimitRanges."
+                }
+            ]
+        },
+        {
+            "name": "Serverless Functions (Cloud Functions, Lambda)",
+            "keywords": [
+                r"\bfunction\b", r"\blambda\b", r"\bcloud\s+function\b", r"\bserverless\b", r"\bfaas\b"
+            ],
+            "threats": [
+                {
+                    "category": "Elevation of Privilege",
+                    "description": "Overly permissive service account bindings allowing function to access unauthorized resources.",
+                    "mitigation": "Follow least privilege, use dedicated service accounts per function."
+                },
+                {
+                    "category": "Denial of Service",
+                    "description": "Unbounded execution causing cost spikes or resource exhaustion.",
+                    "mitigation": "Set timeout limits, configure max instances, implement rate limiting at API Gateway."
+                },
+                {
+                    "category": "Information Disclosure",
+                    "description": "Excessive logging of sensitive data in Cloud Logging.",
+                    "mitigation": "Sanitize logs, use structured logging with PII redaction."
+                }
+            ]
+        },
+        {
+            "name": "CDN / Edge Services (Cloud CDN, Cloudflare)",
+            "keywords": [
+                r"\bcdn\b", r"\bcloud\s+cdn\b", r"\bcloudflare\b", r"\bedge\b",
+                r"\bcache\b", r"\bdistribution\b"
+            ],
+            "threats": [
+                {
+                    "category": "Tampering",
+                    "description": "Cache poisoning if origin validation is missing.",
+                    "mitigation": "Enable signed URLs, validate origin responses, use cache key validation."
+                },
+                {
+                    "category": "Information Disclosure",
+                    "description": "Origin server IP exposure through DNS or headers.",
+                    "mitigation": "Use origin shielding, remove server headers, enable WAF at edge."
+                },
+                {
+                    "category": "Denial of Service",
+                    "description": "Amplification attacks if rate limiting is not configured.",
+                    "mitigation": "Enable DDoS protection, configure rate limits, use challenge pages for suspicious traffic."
+                }
+            ]
+        },
+        {
+            "name": "Monitoring / Observability (Cloud Monitoring, Stackdriver)",
+            "keywords": [
+                r"\bmonitoring\b", r"\bstackdriver\b", r"\bobservability\b",
+                r"\bmetrics\b", r"\blogging\b", r"\balerting\b", r"\bdashboard\b"
+            ],
+            "threats": [
+                {
+                    "category": "Repudiation",
+                    "description": "Lack of immutable audit trails if logs can be deleted or modified.",
+                    "mitigation": "Enable log export to WORM storage, use log bucket retention policies."
+                },
+                {
+                    "category": "Information Disclosure",
+                    "description": "Sensitive data exposure in logs or metrics.",
+                    "mitigation": "Implement log sanitization, restrict IAM access to monitoring dashboards."
+                },
+                {
+                    "category": "Tampering",
+                    "description": "Alert suppression or metric manipulation by unauthorized users.",
+                    "mitigation": "Use separate monitoring workspaces, restrict alert policy modifications."
+                }
+            ]
+        },
+        {
+            "name": "Network / VPC Components (VPC, Subnets, Firewalls)",
+            "keywords": [
+                r"\bvpc\b", r"\bsubnet\b", r"\bfirewall\b", r"\bnetwork\b",
+                r"\broute\s+table\b", r"\bsecurity\s+group\b", r"\bnsg\b"
+            ],
+            "threats": [
+                {
+                    "category": "Information Disclosure",
+                    "description": "Unrestricted network access if security groups allow 0.0.0.0/0.",
+                    "mitigation": "Implement network segmentation, use private subnets for databases, restrict ingress rules."
+                },
+                {
+                    "category": "Tampering",
+                    "description": "Route table manipulation allowing traffic redirection.",
+                    "mitigation": "Enable VPC flow logs, restrict route table modifications with IAM policies."
+                },
+                {
+                    "category": "Denial of Service",
+                    "description": "Network-level DDoS without protection.",
+                    "mitigation": "Enable Cloud Armor, configure network DDoS protection, use Anycast IP addresses."
+                }
+            ]
+        },
+        {
+            "name": "CI/CD Pipeline Components (Cloud Build, GitHub Actions)",
+            "keywords": [
+                r"\bcicd\b", r"\bpipeline\b", r"\bcloud\s+build\b",
+                r"\bgithub\s+actions\b", r"\bjenkins\b", r"\bbuild\b"
+            ],
+            "threats": [
+                {
+                    "category": "Tampering",
+                    "description": "Supply chain attacks if build artifacts are not signed or verified.",
+                    "mitigation": "Enable binary authorization, sign artifacts with KMS, use SLSA framework."
+                },
+                {
+                    "category": "Elevation of Privilege",
+                    "description": "Overly permissive CI/CD service accounts with production access.",
+                    "mitigation": "Use short-lived tokens, implement just-in-time access, separate dev/prod service accounts."
+                },
+                {
+                    "category": "Repudiation",
+                    "description": "Lack of audit trail for deployments.",
+                    "mitigation": "Enable detailed build logs, integrate with audit logging, track deployment metadata."
                 }
             ]
         }
